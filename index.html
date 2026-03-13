@@ -199,7 +199,7 @@
       <div id="tablaContainer">
         <div class="empty">No hay repuestos agregados todavía.</div>
       </div>
-      <button class="secondary" onclick="exportarCSV()">Exportar CSV final</button>
+      <button class="secondary" onclick="exportarExcel()">Exportar Excel final</button>
       <button class="danger" onclick="limpiarTodo()">Limpiar todo</button>
     </div>
   </div>
@@ -253,7 +253,7 @@
       return textoPlano(valor)
         .toUpperCase()
         .replace(/\s+/g, "")
-        .replace(/[-_.]/g, "");
+        .replace(/[^A-Z0-9]/g, "");
     }
 
     function limpiarReferencia(valor) {
@@ -521,20 +521,137 @@
       return almacenData.find(item => item.referenciaNormalizada === refBuscada) || null;
     }
 
-    function extraerReferenciaUtil(texto) {
+    function extraerTokensOCR(texto) {
       const limpio = String(texto || "")
+        .toUpperCase()
         .replace(/\n/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+        .replace(/[^A-Z0-9\s\-\/_.]/g, " ");
 
-      const candidatos = limpio.match(/[A-Z0-9\-\/]{5,}/gi);
+      const tokens = limpio
+        .split(/\s+/)
+        .map(t => t.trim())
+        .filter(Boolean)
+        .map(t => ({
+          original: t,
+          normalizado: normalizarRef(t)
+        }))
+        .filter(t => t.normalizado.length >= 5);
 
-      if (!candidatos || candidatos.length === 0) {
-        return "";
+      return tokens;
+    }
+
+    function levenshtein(a, b) {
+      const m = a.length;
+      const n = b.length;
+      const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+      for (let i = 0; i <= m; i++) dp[i][0] = i;
+      for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(
+            dp[i - 1][j] + 1,
+            dp[i][j - 1] + 1,
+            dp[i - 1][j - 1] + cost
+          );
+        }
+      }
+      return dp[m][n];
+    }
+
+    function similitud(a, b) {
+      if (!a || !b) return 0;
+      const dist = levenshtein(a, b);
+      const maxLen = Math.max(a.length, b.length);
+      return maxLen === 0 ? 1 : 1 - dist / maxLen;
+    }
+
+    function encontrarMejorReferenciaEnAlmacen(textoOCR) {
+      if (!almacenData.length) return null;
+
+      const textoNormalizadoCompleto = normalizarRef(textoOCR);
+      const tokens = extraerTokensOCR(textoOCR);
+
+      for (const item of almacenData) {
+        if (textoNormalizadoCompleto.includes(item.referenciaNormalizada)) {
+          return {
+            item,
+            confianza: 1,
+            modo: "coincidencia directa en texto completo"
+          };
+        }
       }
 
-      candidatos.sort((a, b) => b.length - a.length);
-      return candidatos[0].trim();
+      for (const token of tokens) {
+        const exacta = almacenData.find(item => item.referenciaNormalizada === token.normalizado);
+        if (exacta) {
+          return {
+            item: exacta,
+            confianza: 0.99,
+            modo: "coincidencia exacta por token"
+          };
+        }
+      }
+
+      let mejor = null;
+
+      for (const token of tokens) {
+        for (const item of almacenData) {
+          const ref = item.referenciaNormalizada;
+
+          if (Math.abs(token.normalizado.length - ref.length) > 3) continue;
+
+          const score = similitud(token.normalizado, ref);
+
+          if (!mejor || score > mejor.confianza) {
+            mejor = {
+              item,
+              confianza: score,
+              modo: "coincidencia aproximada",
+              token: token.original
+            };
+          }
+        }
+      }
+
+      if (mejor && mejor.confianza >= 0.72) {
+        return mejor;
+      }
+
+      return null;
+    }
+
+    function preprocesarImagenParaOCR(sourceCanvas) {
+      const tempCanvas = document.createElement("canvas");
+      const escala = 2;
+
+      tempCanvas.width = sourceCanvas.width * escala;
+      tempCanvas.height = sourceCanvas.height * escala;
+
+      const ctx = tempCanvas.getContext("2d");
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(sourceCanvas, 0, 0, tempCanvas.width, tempCanvas.height);
+
+      const imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+      const data = imageData.data;
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+
+        const gris = 0.299 * r + 0.587 * g + 0.114 * b;
+        const valor = gris > 150 ? 255 : 0;
+
+        data[i] = valor;
+        data[i + 1] = valor;
+        data[i + 2] = valor;
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+      return tempCanvas;
     }
 
     async function capturarYLeer() {
@@ -554,37 +671,55 @@
 
       const ctx = canvas.getContext("2d");
 
-      const sx = Math.floor(canvas.width * 0.15);
-      const sy = Math.floor(canvas.height * 0.35);
-      const sw = Math.floor(canvas.width * 0.70);
-      const sh = Math.floor(canvas.height * 0.25);
+      const sx = Math.floor(canvas.width * 0.10);
+      const sy = Math.floor(canvas.height * 0.30);
+      const sw = Math.floor(canvas.width * 0.80);
+      const sh = Math.floor(canvas.height * 0.28);
 
       ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
-      ocrResultado.innerText = "Leyendo número... espera unos segundos.";
+      const canvasProcesado = preprocesarImagenParaOCR(canvas);
+
+      ocrResultado.innerText = "Leyendo referencia... espera unos segundos.";
       ocrResultado.className = "result warn";
 
       try {
-        const result = await Tesseract.recognize(canvas, "eng", {
+        const result = await Tesseract.recognize(canvasProcesado, "eng", {
           logger: function(m) {
             console.log(m);
           }
         });
 
         const textoDetectado = result.data.text || "";
-        const referenciaDetectada = extraerReferenciaUtil(textoDetectado);
+        const matchAlmacen = encontrarMejorReferenciaEnAlmacen(textoDetectado);
 
-        if (referenciaDetectada) {
-          manualRef.value = referenciaDetectada;
+        if (matchAlmacen) {
+          manualRef.value = matchAlmacen.item.referencia;
           ocrResultado.innerText =
-            "Lectura completada.\n" +
-            "Texto detectado: " + textoDetectado.trim() + "\n" +
-            "Referencia sugerida: " + referenciaDetectada;
+            "Referencia encontrada en almacén.\n" +
+            "Referencia: " + matchAlmacen.item.referencia + "\n" +
+            "Descripción: " + (matchAlmacen.item.descripcion || "") + "\n" +
+            "Confianza: " + Math.round(matchAlmacen.confianza * 100) + "%\n" +
+            "Modo: " + matchAlmacen.modo + "\n" +
+            "Texto OCR: " + textoDetectado.trim();
           ocrResultado.className = "result ok";
+          return;
+        }
+
+        const tokens = extraerTokensOCR(textoDetectado);
+        const mejorToken = tokens.length ? tokens.sort((a, b) => b.normalizado.length - a.normalizado.length)[0] : null;
+
+        if (mejorToken) {
+          manualRef.value = mejorToken.original;
+          ocrResultado.innerText =
+            "No encontré coincidencia directa en almacén, pero detecté este candidato.\n" +
+            "Candidato: " + mejorToken.original + "\n" +
+            "Texto OCR: " + textoDetectado.trim();
+          ocrResultado.className = "result warn";
         } else {
           ocrResultado.innerText =
             "No pude detectar una referencia útil.\n" +
-            "Texto detectado: " + textoDetectado.trim();
+            "Texto OCR: " + textoDetectado.trim();
           ocrResultado.className = "result error";
         }
       } catch (error) {
@@ -708,7 +843,7 @@
       renderTabla();
     }
 
-    function exportarCSV() {
+    function exportarExcel() {
       const claves = Object.keys(inventarioFinal);
 
       if (claves.length === 0) {
@@ -716,22 +851,20 @@
         return;
       }
 
-      let csv = "Referencia,Descripcion,Stock_Almacen,Cantidad_Final\n";
-
-      claves.forEach(ref => {
+      const datos = claves.map(ref => {
         const item = inventarioFinal[ref];
-        csv += `"${item.referencia}","${item.descripcion}","${item.stock}","${item.cantidad}"\n`;
+        return {
+          Referencia: item.referencia,
+          Descripcion: item.descripcion || "",
+          Stock_Almacen: item.stock || "",
+          Cantidad_Final: item.cantidad
+        };
       });
 
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "estado_final_repuestos.csv";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const ws = XLSX.utils.json_to_sheet(datos);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Estado_Final");
+      XLSX.writeFile(wb, "estado_final_repuestos.xlsx");
     }
 
     function guardarDatos() {
