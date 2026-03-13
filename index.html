@@ -14,11 +14,11 @@
     }
 
     .container {
-      max-width: 900px;
+      max-width: 920px;
       margin: 0 auto;
     }
 
-    h1, h2 {
+    h1, h2, h3 {
       margin-top: 0;
     }
 
@@ -98,6 +98,10 @@
       background: #fdecea;
     }
 
+    .muted {
+      background: #f8f9fa;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -142,12 +146,11 @@
       display: none;
     }
 
-    .summary-box {
-      margin-top: 10px;
-      padding: 12px;
-      background: #f8f9fa;
-      border-radius: 10px;
-      font-size: 14px;
+    .diag {
+      font-family: monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
   </style>
 </head>
@@ -171,13 +174,10 @@
       <label for="archivoAlmacen">Selecciona archivo Excel o CSV</label>
       <input type="file" id="archivoAlmacen" accept=".xlsx,.xls,.csv" />
       <button class="secondary" onclick="cargarAlmacen()">Cargar almacén</button>
+
       <div class="result" id="estadoAlmacen">Aún no se ha cargado ningún archivo.</div>
-      <div class="meta">
-        Formatos permitidos: .xlsx, .xls, .csv
-      </div>
-      <div class="summary-box" id="resumenAlmacen">
-        Registros cargados: 0
-      </div>
+      <div class="result muted diag" id="diagnosticoAlmacen">Diagnóstico pendiente.</div>
+      <div class="meta">Formatos permitidos: .xlsx, .xls, .csv</div>
     </div>
 
     <div class="card">
@@ -235,24 +235,51 @@
       }
     }
 
-    function normalizarTexto(valor) {
-      return String(valor ?? "").trim().toLowerCase();
+    function textoPlano(valor) {
+      if (valor === null || valor === undefined) return "";
+      return String(valor).replace(/\uFEFF/g, "").trim();
+    }
+
+    function normalizarCabecera(valor) {
+      return textoPlano(valor)
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+    }
+
+    function normalizarRef(valor) {
+      return textoPlano(valor)
+        .toUpperCase()
+        .replace(/\s+/g, "")
+        .replace(/[-_.]/g, "");
     }
 
     function limpiarReferencia(valor) {
-      return String(valor ?? "").trim();
+      return textoPlano(valor);
     }
 
     function obtenerExtensionArchivo(nombre) {
-      const partes = String(nombre || "").toLowerCase().split(".");
+      const partes = textoPlano(nombre).toLowerCase().split(".");
       return partes.length > 1 ? partes.pop() : "";
     }
 
-    function buscarIndiceColumna(headers, palabrasClave) {
-      for (let i = 0; i < headers.length; i++) {
-        const h = normalizarTexto(headers[i]);
-        for (const palabra of palabrasClave) {
-          if (h.includes(palabra)) {
+    function esFilaVacia(row) {
+      if (!row || !Array.isArray(row)) return true;
+      return row.every(c => textoPlano(c) === "");
+    }
+
+    function contarCeldasConTexto(row) {
+      if (!row || !Array.isArray(row)) return 0;
+      return row.filter(c => textoPlano(c) !== "").length;
+    }
+
+    function buscarIndicePorSinonimos(headersNormalizados, sinonimos) {
+      for (let i = 0; i < headersNormalizados.length; i++) {
+        const h = headersNormalizados[i];
+        for (const s of sinonimos) {
+          if (h === s || h.includes(s)) {
             return i;
           }
         }
@@ -260,46 +287,129 @@
       return -1;
     }
 
-    function convertirFilasAAlmacen(filas) {
+    function detectarFilaEncabezado(filas) {
+      const maxFilas = Math.min(filas.length, 15);
+
+      const sinonimosRef = [
+        "referencia", "referencia material", "codigo", "codigo material",
+        "cod material", "material", "parte", "nro parte", "numero parte",
+        "part number", "partnumber", "pn", "item", "sku"
+      ];
+
+      const sinonimosDesc = [
+        "descripcion", "description", "detalle", "glosa", "nombre"
+      ];
+
+      const sinonimosStock = [
+        "stock", "saldo", "existencia", "cantidad", "qty", "on hand", "almacen"
+      ];
+
+      let mejor = { fila: -1, score: -1, idxRef: -1, idxDesc: -1, idxStock: -1, headers: [] };
+
+      for (let i = 0; i < maxFilas; i++) {
+        const row = filas[i] || [];
+        const headersNorm = row.map(c => normalizarCabecera(c));
+
+        let score = 0;
+        const idxRef = buscarIndicePorSinonimos(headersNorm, sinonimosRef);
+        const idxDesc = buscarIndicePorSinonimos(headersNorm, sinonimosDesc);
+        const idxStock = buscarIndicePorSinonimos(headersNorm, sinonimosStock);
+
+        if (idxRef !== -1) score += 10;
+        if (idxDesc !== -1) score += 4;
+        if (idxStock !== -1) score += 3;
+
+        score += Math.min(contarCeldasConTexto(row), 8);
+
+        if (score > mejor.score) {
+          mejor = {
+            fila: i,
+            score,
+            idxRef,
+            idxDesc,
+            idxStock,
+            headers: row.map(c => textoPlano(c))
+          };
+        }
+      }
+
+      return mejor;
+    }
+
+    function convertirFilasAAlmacen(filas, nombreArchivo) {
       const estado = document.getElementById("estadoAlmacen");
-      const resumen = document.getElementById("resumenAlmacen");
+      const diag = document.getElementById("diagnosticoAlmacen");
 
       if (!filas || filas.length < 2) {
         estado.innerText = "El archivo no tiene suficientes filas.";
         estado.className = "result error";
+        diag.innerText = "No hay datos suficientes para analizar.";
         return false;
       }
 
-      const headers = filas[0].map(v => String(v ?? "").trim());
+      const noVacias = filas.filter(row => !esFilaVacia(row));
 
-      const idxRef = buscarIndiceColumna(headers, ["referencia", "parte", "part number", "part_number", "pn"]);
-      const idxDesc = buscarIndiceColumna(headers, ["descripcion", "descripción", "description", "detalle"]);
-      const idxStock = buscarIndiceColumna(headers, ["stock", "saldo", "cantidad", "existencia"]);
-
-      if (idxRef === -1) {
-        estado.innerText = "No encontré una columna de referencia o parte en el archivo.";
+      if (noVacias.length < 2) {
+        estado.innerText = "El archivo está vacío o casi vacío.";
         estado.className = "result error";
+        diag.innerText = "Solo encontré filas vacías.";
         return false;
       }
 
+      const cab = detectarFilaEncabezado(noVacias);
+
+      if (cab.fila === -1) {
+        estado.innerText = "No pude detectar la fila de encabezados.";
+        estado.className = "result error";
+        diag.innerText = "Falló la detección de encabezados.";
+        return false;
+      }
+
+      if (cab.idxRef === -1) {
+        estado.innerText = "No encontré una columna de referencia o parte.";
+        estado.className = "result error";
+        diag.innerText =
+          "Archivo: " + nombreArchivo + "\n" +
+          "Fila tomada como encabezado: " + (cab.fila + 1) + "\n" +
+          "Encabezados detectados: " + JSON.stringify(cab.headers, null, 2);
+        return false;
+      }
+
+      const inicioDatos = cab.fila + 1;
       almacenData = [];
 
-      for (let i = 1; i < filas.length; i++) {
-        const row = filas[i] || [];
-        const referencia = limpiarReferencia(row[idxRef]);
-        const descripcion = idxDesc !== -1 ? String(row[idxDesc] ?? "").trim() : "";
-        const stock = idxStock !== -1 ? String(row[idxStock] ?? "").trim() : "";
+      for (let i = inicioDatos; i < noVacias.length; i++) {
+        const row = noVacias[i] || [];
+
+        const referencia = limpiarReferencia(row[cab.idxRef]);
+        const descripcion = cab.idxDesc !== -1 ? textoPlano(row[cab.idxDesc]) : "";
+        const stock = cab.idxStock !== -1 ? textoPlano(row[cab.idxStock]) : "";
 
         if (referencia !== "") {
           almacenData.push({
             referencia,
+            referenciaNormalizada: normalizarRef(referencia),
             descripcion,
             stock
           });
         }
       }
 
-      resumen.innerText = "Registros cargados: " + almacenData.length;
+      const primerasRefs = almacenData.slice(0, 10).map(x => x.referencia);
+
+      estado.innerText =
+        "Archivo cargado correctamente.\n" +
+        "Registros: " + almacenData.length;
+      estado.className = "result ok";
+
+      diag.innerText =
+        "Archivo: " + nombreArchivo + "\n" +
+        "Fila usada como encabezado: " + (cab.fila + 1) + "\n" +
+        "Columna referencia: " + (cab.idxRef + 1) + " -> " + (cab.headers[cab.idxRef] || "") + "\n" +
+        "Columna descripción: " + (cab.idxDesc !== -1 ? (cab.idxDesc + 1) + " -> " + (cab.headers[cab.idxDesc] || "") : "No detectada") + "\n" +
+        "Columna stock: " + (cab.idxStock !== -1 ? (cab.idxStock + 1) + " -> " + (cab.headers[cab.idxStock] || "") : "No detectada") + "\n" +
+        "Primeras referencias: " + (primerasRefs.length ? primerasRefs.join(", ") : "Ninguna");
+
       return true;
     }
 
@@ -310,12 +420,12 @@
       reader.onload = function(e) {
         try {
           const text = e.target.result;
-          const workbook = XLSX.read(text, { type: "string" });
+          const workbook = XLSX.read(text, { type: "string", raw: false });
           const sheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[sheetName];
-          const filas = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+          const filas = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", raw: false });
 
-          const ok = convertirFilasAAlmacen(filas);
+          const ok = convertirFilasAAlmacen(filas, file.name);
 
           if (ok) {
             estado.innerText =
@@ -328,6 +438,7 @@
         } catch (error) {
           estado.innerText = "Error al leer el archivo CSV.";
           estado.className = "result error";
+          document.getElementById("diagnosticoAlmacen").innerText = "Detalle error CSV: " + error;
           console.error("Error CSV:", error);
         }
       };
@@ -342,12 +453,22 @@
       reader.onload = function(e) {
         try {
           const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, { type: "array" });
+          const workbook = XLSX.read(data, {
+            type: "array",
+            raw: false,
+            cellText: true,
+            cellDates: true
+          });
+
           const sheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[sheetName];
-          const filas = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+          const filas = XLSX.utils.sheet_to_json(worksheet, {
+            header: 1,
+            defval: "",
+            raw: false
+          });
 
-          const ok = convertirFilasAAlmacen(filas);
+          const ok = convertirFilasAAlmacen(filas, file.name);
 
           if (ok) {
             estado.innerText =
@@ -360,6 +481,7 @@
         } catch (error) {
           estado.innerText = "Error al leer el archivo Excel.";
           estado.className = "result error";
+          document.getElementById("diagnosticoAlmacen").innerText = "Detalle error Excel: " + error;
           console.error("Error Excel:", error);
         }
       };
@@ -395,8 +517,8 @@
     }
 
     function buscarEnAlmacen(referencia) {
-      const refBuscada = normalizarTexto(referencia);
-      return almacenData.find(item => normalizarTexto(item.referencia) === refBuscada) || null;
+      const refBuscada = normalizarRef(referencia);
+      return almacenData.find(item => item.referenciaNormalizada === refBuscada) || null;
     }
 
     function extraerReferenciaUtil(texto) {
@@ -431,7 +553,13 @@
       canvas.height = video.videoHeight;
 
       const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const sx = Math.floor(canvas.width * 0.15);
+      const sy = Math.floor(canvas.height * 0.35);
+      const sw = Math.floor(canvas.width * 0.70);
+      const sh = Math.floor(canvas.height * 0.25);
+
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
       ocrResultado.innerText = "Leyendo número... espera unos segundos.";
       ocrResultado.className = "result warn";
