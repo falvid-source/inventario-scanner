@@ -1,554 +1,360 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Inventario Scanner</title>
-
-  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
-  <script src="https://unpkg.com/html5-qrcode"></script>
-
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventario de Repuestos</title>
   <style>
-    body{
+    body {
       font-family: Arial, sans-serif;
-      margin:0;
-      padding:16px;
-      background:#f5f7fb;
-      color:#1f2937;
-      font-size:18px;
+      margin: 0;
+      padding: 16px;
+      background: #f4f6f8;
+      color: #222;
     }
-    .card{
-      background:#fff;
-      border-radius:14px;
-      padding:16px;
-      box-shadow:0 2px 10px rgba(0,0,0,.08);
-      margin-bottom:16px;
+
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
     }
-    h1{
-      font-size:28px;
-      margin:0 0 14px 0;
+
+    h1 {
+      font-size: 24px;
+      text-align: center;
+      margin-bottom: 16px;
     }
-    h2{
-      font-size:22px;
-      margin:0 0 10px 0;
+
+    .card {
+      background: white;
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
     }
-    input[type="file"]{
-      width:100%;
-      font-size:18px;
-      padding:10px 0;
+
+    video {
+      width: 100%;
+      border-radius: 12px;
+      background: black;
+      margin-bottom: 12px;
     }
-    button{
-      width:100%;
-      border:none;
-      border-radius:12px;
-      padding:16px;
-      font-size:20px;
-      font-weight:700;
-      margin-top:10px;
-      cursor:pointer;
+
+    label {
+      display: block;
+      font-weight: bold;
+      margin-top: 10px;
+      margin-bottom: 6px;
     }
-    .btn-primary{ background:#2563eb; color:#fff; }
-    .btn-secondary{ background:#0f766e; color:#fff; }
-    .btn-danger{ background:#b91c1c; color:#fff; }
-    #reader{
-      width:100%;
-      min-height:280px;
-      margin-top:12px;
+
+    input {
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      box-sizing: border-box;
+      margin-bottom: 10px;
     }
-    .status{
-      font-size:18px;
-      padding:12px;
-      border-radius:10px;
-      background:#eef2ff;
-      margin-top:10px;
-      word-break:break-word;
+
+    button {
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+      border: none;
+      border-radius: 10px;
+      background: #0d6efd;
+      color: white;
+      font-weight: bold;
+      margin-top: 8px;
+      cursor: pointer;
     }
-    .debug{
-      font-size:15px;
-      background:#f8fafc;
-      border:1px solid #dbeafe;
-      border-radius:10px;
-      padding:12px;
-      white-space:pre-wrap;
-      word-break:break-word;
+
+    button:hover {
+      opacity: 0.95;
     }
-    table{
-      width:100%;
-      border-collapse:collapse;
-      background:#fff;
-      font-size:16px;
+
+    .secondary {
+      background: #198754;
     }
-    th, td{
-      border:1px solid #e5e7eb;
-      padding:10px 8px;
-      text-align:left;
-      vertical-align:top;
+
+    .danger {
+      background: #dc3545;
     }
-    th{
-      background:#eff6ff;
-      position:sticky;
-      top:0;
+
+    .result {
+      margin-top: 10px;
+      padding: 12px;
+      background: #eef4ff;
+      border-radius: 10px;
+      font-size: 15px;
     }
-    .table-wrap{
-      overflow:auto;
-      max-height:420px;
-      border-radius:12px;
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      background: white;
+      border-radius: 10px;
+      overflow: hidden;
     }
-    .pill{
-      display:inline-block;
-      background:#dbeafe;
-      color:#1e3a8a;
-      padding:6px 10px;
-      border-radius:999px;
-      font-size:14px;
-      margin-right:6px;
-      margin-top:6px;
+
+    th, td {
+      padding: 12px 8px;
+      border-bottom: 1px solid #ddd;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    th {
+      background: #f1f3f5;
+    }
+
+    .small-btn {
+      width: auto;
+      padding: 8px 12px;
+      font-size: 14px;
+      margin: 0;
+      border-radius: 8px;
+    }
+
+    .empty {
+      color: #666;
+      font-style: italic;
+      margin-top: 10px;
+    }
+
+    .total-box {
+      margin-top: 12px;
+      font-weight: bold;
+      font-size: 16px;
+      padding: 12px;
+      background: #f8f9fa;
+      border-radius: 10px;
     }
   </style>
 </head>
 <body>
+  <div class="container">
+    <h1>Inventario de Repuestos</h1>
 
-  <div class="card">
-    <h1>Inventario Scanner</h1>
-    <input type="file" id="excelFile" accept=".xlsx,.xls,.csv" />
-    <button class="btn-primary" onclick="startScanner()">Abrir cámara</button>
-    <button class="btn-secondary" onclick="exportCSV()">Exportar CSV</button>
-    <button class="btn-danger" onclick="stopScanner()">Detener cámara</button>
+    <div class="card">
+      <h2>Cámara</h2>
+      <video id="video" autoplay playsinline></video>
+      <div class="result" id="cameraStatus">Intentando abrir cámara...</div>
+    </div>
 
-    <div id="status" class="status">Carga primero el archivo de almacén.</div>
-    <div id="meta"></div>
-  </div>
+    <div class="card">
+      <h2>Agregar repuesto</h2>
 
-  <div class="card">
-    <h2>Escáner</h2>
-    <div id="reader"></div>
-  </div>
+      <label for="manualRef">Referencia</label>
+      <input
+        type="text"
+        id="manualRef"
+        placeholder="Ej: 8231046410"
+        inputmode="numeric"
+      >
 
-  <div class="card">
-    <h2>Diagnóstico</h2>
-    <div id="debug" class="debug">Sin datos todavía.</div>
-  </div>
+      <label for="cantidad">Cantidad</label>
+      <input
+        type="number"
+        id="cantidad"
+        placeholder="Ej: 2"
+        min="1"
+      >
 
-  <div class="card">
-    <h2>Conteo</h2>
-    <div class="table-wrap">
-      <table id="tabla">
-        <thead>
-          <tr>
-            <th>Referencia</th>
-            <th>Descripción</th>
-            <th>Cantidad</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+      <button onclick="agregarRepuesto()">Agregar repuesto</button>
+
+      <div class="result" id="resultado">Aún no has agregado repuestos.</div>
+    </div>
+
+    <div class="card">
+      <h2>Estado final</h2>
+      <div id="tablaContainer">
+        <div class="empty">No hay repuestos agregados todavía.</div>
+      </div>
+
+      <div class="total-box" id="totalItems">Total de unidades: 0</div>
+
+      <button class="secondary" onclick="exportarCSV()">Exportar CSV</button>
+      <button class="danger" onclick="limpiarTodo()">Limpiar todo</button>
     </div>
   </div>
 
-<script>
-let almacen = {};
-let conteo = {};
-let scanner = null;
-let ultimoCodigo = "";
-let ultimoTiempo = 0;
-const bloqueoMs = 1500;
+  <script>
+    const inventario = {};
 
-document.getElementById("excelFile").addEventListener("change", cargarExcel);
+    async function iniciarCamara() {
+      const video = document.getElementById("video");
+      const cameraStatus = document.getElementById("cameraStatus");
 
-function setStatus(msg){
-  document.getElementById("status").textContent = msg;
-}
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" }
+          },
+          audio: false
+        });
 
-function setDebug(msg){
-  document.getElementById("debug").textContent = msg;
-}
-
-function slug(text){
-  return String(text ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function normalizarReferencia(v){
-  return String(v ?? "")
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/[–—]/g, "-");
-}
-
-function isMeaningfulCell(v){
-  return v !== undefined && v !== null && String(v).trim() !== "";
-}
-
-function pareceReferencia(v){
-  const s = normalizarReferencia(v);
-  if (!s) return false;
-
-  // Patrones típicos de part numbers
-  const hasDigits = /\d/.test(s);
-  const lenOk = s.length >= 4 && s.length <= 40;
-  const allowed = /^[A-Za-z0-9._\-\/]+$/.test(s);
-  const notTooWordy = !/\s/.test(s);
-
-  return hasDigits && lenOk && allowed && notTooWordy;
-}
-
-function elegirHoja(workbook){
-  const names = workbook.SheetNames || [];
-  const exact = names.find(n => slug(n) === "piezas");
-  if (exact) return exact;
-
-  const contains = names.find(n => slug(n).includes("pieza"));
-  if (contains) return contains;
-
-  return names[0];
-}
-
-function leerFilas(sheet){
-  return XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    defval: "",
-    blankrows: false,
-    raw: false
-  });
-}
-
-function detectarFilaEncabezado(rows){
-  const maxScan = Math.min(rows.length, 25);
-  let bestRow = 0;
-  let bestScore = -1;
-
-  for(let r = 0; r < maxScan; r++){
-    const row = rows[r] || [];
-    let score = 0;
-
-    for(const cell of row){
-      const s = slug(cell);
-
-      if (!s) continue;
-
-      if (s.includes("referencia")) score += 20;
-      if (s.includes("descripcion")) score += 20;
-      if (s.includes("description")) score += 20;
-      if (s.includes("ubicacion")) score += 8;
-      if (s.includes("stock")) score += 8;
-      if (s.includes("minimo")) score += 5;
-      if (s.includes("cantidad")) score += 5;
-      if (s.includes("codigo")) score += 10;
-      if (s.includes("material")) score += 10;
-      if (s.includes("part")) score += 10;
-      if (s.includes("item")) score += 6;
+        video.srcObject = stream;
+        cameraStatus.innerText = "Cámara activa correctamente.";
+      } catch (error) {
+        cameraStatus.innerText = "No se pudo abrir la cámara. Puedes seguir usando ingreso manual.";
+        console.error("Error al abrir cámara:", error);
+      }
     }
 
-    const nonEmpty = row.filter(isMeaningfulCell).length;
-    if (nonEmpty >= 3) score += 5;
-    if (nonEmpty >= 5) score += 5;
+    function agregarRepuesto() {
+      const refInput = document.getElementById("manualRef");
+      const cantidadInput = document.getElementById("cantidad");
+      const resultado = document.getElementById("resultado");
 
-    // Penaliza filas tipo título largo
-    const longCells = row.filter(c => String(c).length > 40).length;
-    score -= longCells * 2;
+      const referencia = refInput.value.trim();
+      const cantidad = parseInt(cantidadInput.value, 10);
 
-    if (score > bestScore){
-      bestScore = score;
-      bestRow = r;
-    }
-  }
-
-  return bestRow;
-}
-
-function detectarColumnaReferencia(headers, dataRows){
-  let bestCol = 0;
-  let bestScore = -1;
-  const cols = headers.length;
-
-  for(let c = 0; c < cols; c++){
-    let score = 0;
-    const h = slug(headers[c]);
-
-    if (h.includes("referencia")) score += 60;
-    if (h.includes("codigo")) score += 40;
-    if (h.includes("material")) score += 35;
-    if (h.includes("part")) score += 40;
-    if (h.includes("item")) score += 20;
-    if (h.includes("pn")) score += 30;
-
-    let sample = 0;
-    let refHits = 0;
-    let duplicatePenaltyMap = {};
-
-    for(let r = 0; r < Math.min(dataRows.length, 80); r++){
-      const val = dataRows[r][c];
-      if (!isMeaningfulCell(val)) continue;
-      sample++;
-      const n = normalizarReferencia(val);
-      if (pareceReferencia(n)) refHits++;
-      duplicatePenaltyMap[n] = (duplicatePenaltyMap[n] || 0) + 1;
-    }
-
-    if (sample > 0){
-      score += Math.round((refHits / sample) * 50);
-    }
-
-    const duplicates = Object.values(duplicatePenaltyMap).filter(x => x > 5).length;
-    score -= duplicates * 3;
-
-    if (score > bestScore){
-      bestScore = score;
-      bestCol = c;
-    }
-  }
-
-  return bestCol;
-}
-
-function detectarColumnaDescripcion(headers, dataRows, refCol){
-  let bestCol = Math.min(1, headers.length - 1);
-  let bestScore = -1;
-  const cols = headers.length;
-
-  for(let c = 0; c < cols; c++){
-    if (c === refCol) continue;
-
-    let score = 0;
-    const h = slug(headers[c]);
-
-    if (h.includes("descripcion")) score += 60;
-    if (h.includes("description")) score += 60;
-    if (h.includes("detalle")) score += 40;
-    if (h.includes("nombre")) score += 30;
-
-    let sample = 0;
-    let textish = 0;
-
-    for(let r = 0; r < Math.min(dataRows.length, 80); r++){
-      const val = dataRows[r][c];
-      if (!isMeaningfulCell(val)) continue;
-      sample++;
-      const s = String(val).trim();
-
-      if (/[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(s) && s.length >= 4) textish++;
-      if (s.length > 8) score += 1;
-    }
-
-    if (sample > 0){
-      score += Math.round((textish / sample) * 30);
-    }
-
-    if (score > bestScore){
-      bestScore = score;
-      bestCol = c;
-    }
-  }
-
-  return bestCol;
-}
-
-function cargarExcel(e){
-  const file = e.target.files[0];
-  if (!file){
-    setStatus("No seleccionaste archivo.");
-    return;
-  }
-
-  const reader = new FileReader();
-
-  reader.onload = function(evt){
-    try{
-      const data = new Uint8Array(evt.target.result);
-      const workbook = XLSX.read(data, { type: "array" });
-
-      const hojaNombre = elegirHoja(workbook);
-      const sheet = workbook.Sheets[hojaNombre];
-      const rows = leerFilas(sheet);
-
-      if (!rows || rows.length === 0){
-        setStatus("La hoja está vacía.");
-        setDebug("No se encontraron filas.");
+      if (referencia === "") {
+        alert("Debes ingresar una referencia.");
         return;
       }
 
-      const headerRowIndex = detectarFilaEncabezado(rows);
-      const headersRaw = rows[headerRowIndex] || [];
-      const dataRows = rows.slice(headerRowIndex + 1).filter(row =>
-        row.some(isMeaningfulCell)
-      );
-
-      if (dataRows.length === 0){
-        setStatus("No hay filas de datos debajo del encabezado.");
-        setDebug("Se detectó una fila de encabezado, pero no filas de datos.");
+      if (isNaN(cantidad) || cantidad <= 0) {
+        alert("Debes ingresar una cantidad válida mayor que 0.");
         return;
       }
 
-      const headers = headersRaw.map((h, i) => {
-        const txt = String(h ?? "").trim();
-        return txt || `col_${i}`;
-      });
-
-      const refCol = detectarColumnaReferencia(headers, dataRows);
-      const descCol = detectarColumnaDescripcion(headers, dataRows, refCol);
-
-      almacen = {};
-      let cargadas = 0;
-
-      for (const row of dataRows){
-        const ref = normalizarReferencia(row[refCol]);
-        const desc = String(row[descCol] ?? "").trim();
-
-        if (!ref) continue;
-        if (!pareceReferencia(ref)) continue;
-
-        almacen[ref] = desc;
-        cargadas++;
+      if (inventario[referencia]) {
+        inventario[referencia] += cantidad;
+      } else {
+        inventario[referencia] = cantidad;
       }
 
-      const meta = document.getElementById("meta");
-      meta.innerHTML = `
-        <span class="pill">Hoja: ${escapeHtml(hojaNombre)}</span>
-        <span class="pill">Fila encabezado: ${headerRowIndex + 1}</span>
-        <span class="pill">Col. referencia: ${refCol + 1} (${escapeHtml(headers[refCol])})</span>
-        <span class="pill">Col. descripción: ${descCol + 1} (${escapeHtml(headers[descCol])})</span>
+      resultado.innerText =
+        "Agregado correctamente. Referencia: " +
+        referencia +
+        " | Cantidad agregada: " +
+        cantidad +
+        " | Total acumulado: " +
+        inventario[referencia];
+
+      refInput.value = "";
+      cantidadInput.value = "";
+      refInput.focus();
+
+      renderTabla();
+      guardarDatos();
+    }
+
+    function renderTabla() {
+      const tablaContainer = document.getElementById("tablaContainer");
+      const totalItems = document.getElementById("totalItems");
+
+      const referencias = Object.keys(inventario);
+
+      if (referencias.length === 0) {
+        tablaContainer.innerHTML = '<div class="empty">No hay repuestos agregados todavía.</div>';
+        totalItems.innerText = "Total de unidades: 0";
+        return;
+      }
+
+      let total = 0;
+      let html = `
+        <table>
+          <thead>
+            <tr>
+              <th>Referencia</th>
+              <th>Cantidad</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
       `;
 
-      setStatus(`Almacén cargado: ${Object.keys(almacen).length} piezas.`);
+      referencias.forEach(ref => {
+        total += inventario[ref];
+        html += `
+          <tr>
+            <td>${ref}</td>
+            <td>${inventario[ref]}</td>
+            <td>
+              <button class="small-btn danger" onclick="eliminarReferencia('${ref}')">Eliminar</button>
+            </td>
+          </tr>
+        `;
+      });
 
-      setDebug(
-`Archivo: ${file.name}
-Hoja usada: ${hojaNombre}
-Fila de encabezado detectada: ${headerRowIndex + 1}
-Encabezados detectados: ${headers.join(" | ")}
-Columna referencia: ${refCol + 1} -> ${headers[refCol]}
-Columna descripción: ${descCol + 1} -> ${headers[descCol]}
-Filas analizadas: ${dataRows.length}
-Piezas cargadas válidas: ${Object.keys(almacen).length}
+      html += `
+          </tbody>
+        </table>
+      `;
 
-Primeras 10 referencias detectadas:
-${Object.keys(almacen).slice(0, 10).join("\n") || "(ninguna)"}`
-      );
+      tablaContainer.innerHTML = html;
+      totalItems.innerText = "Total de unidades: " + total;
+    }
 
-      if (Object.keys(almacen).length === 0){
-        setStatus("Se cargó el archivo, pero no se detectaron referencias válidas.");
+    function eliminarReferencia(ref) {
+      delete inventario[ref];
+      renderTabla();
+      guardarDatos();
+    }
+
+    function limpiarTodo() {
+      const confirmar = confirm("¿Seguro que quieres borrar todo?");
+      if (!confirmar) return;
+
+      for (const key in inventario) {
+        delete inventario[key];
       }
 
-    }catch(err){
-      console.error(err);
-      setStatus("Error leyendo el archivo.");
-      setDebug("Detalle: " + err.message);
-    }
-  };
-
-  reader.readAsArrayBuffer(file);
-}
-
-async function startScanner(){
-  try{
-    if (scanner){
-      await stopScanner();
+      document.getElementById("resultado").innerText = "Aún no has agregado repuestos.";
+      renderTabla();
+      guardarDatos();
     }
 
-    scanner = new Html5Qrcode("reader");
-    await scanner.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 280, height: 180 } },
-      onScanSuccess
-    );
-
-    setStatus("Cámara activa. Escanea un código.");
-  }catch(err){
-    console.error(err);
-    setStatus("No se pudo abrir la cámara.");
-    setDebug("Error cámara: " + err.message);
-  }
-}
-
-async function stopScanner(){
-  try{
-    if (scanner){
-      await scanner.stop();
-      await scanner.clear();
-      scanner = null;
-      setStatus("Cámara detenida.");
+    function guardarDatos() {
+      localStorage.setItem("inventarioRepuestos", JSON.stringify(inventario));
     }
-  }catch(err){
-    console.error(err);
-  }
-}
 
-function onScanSuccess(decodedText){
-  const codigo = normalizarReferencia(decodedText);
-  const ahora = Date.now();
+    function cargarDatos() {
+      const datosGuardados = localStorage.getItem("inventarioRepuestos");
+      if (!datosGuardados) return;
 
-  if (codigo === ultimoCodigo && (ahora - ultimoTiempo) < bloqueoMs){
-    return;
-  }
+      const datos = JSON.parse(datosGuardados);
 
-  ultimoCodigo = codigo;
-  ultimoTiempo = ahora;
-  registrar(codigo);
-}
+      for (const ref in datos) {
+        inventario[ref] = datos[ref];
+      }
 
-function registrar(codigo){
-  if (!conteo[codigo]) conteo[codigo] = 0;
-  conteo[codigo]++;
+      renderTabla();
+    }
 
-  if (navigator.vibrate) navigator.vibrate(120);
+    function exportarCSV() {
+      const referencias = Object.keys(inventario);
 
-  actualizarTabla();
+      if (referencias.length === 0) {
+        alert("No hay datos para exportar.");
+        return;
+      }
 
-  const desc = almacen[codigo] || "NO ENCONTRADO";
-  setStatus(`Último: ${codigo} | ${desc} | Cantidad: ${conteo[codigo]}`);
-}
+      let csv = "Referencia,Cantidad\n";
 
-function actualizarTabla(){
-  const tbody = document.querySelector("#tabla tbody");
-  tbody.innerHTML = "";
+      referencias.forEach(ref => {
+        csv += `${ref},${inventario[ref]}\n`;
+      });
 
-  const refs = Object.keys(conteo).sort();
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
 
-  for (const ref of refs){
-    const tr = document.createElement("tr");
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", "inventario_repuestos.csv");
+      link.style.display = "none";
 
-    const tdRef = document.createElement("td");
-    tdRef.textContent = ref;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
 
-    const tdDesc = document.createElement("td");
-    tdDesc.textContent = almacen[ref] || "NO ENCONTRADO";
-
-    const tdCant = document.createElement("td");
-    tdCant.textContent = conteo[ref];
-
-    tr.appendChild(tdRef);
-    tr.appendChild(tdDesc);
-    tr.appendChild(tdCant);
-    tbody.appendChild(tr);
-  }
-}
-
-function exportCSV(){
-  let csv = "Referencia,Descripcion,Cantidad\n";
-
-  for (const ref of Object.keys(conteo).sort()){
-    const desc = (almacen[ref] || "").replace(/"/g, '""');
-    csv += `"${ref}","${desc}","${conteo[ref]}"\n`;
-  }
-
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "inventario_conteo.csv";
-  a.click();
-}
-
-function escapeHtml(text){
-  return String(text)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-</script>
+    iniciarCamara();
+    cargarDatos();
+  </script>
 </body>
 </html>
